@@ -1,6 +1,35 @@
 import numpy as np
 from nuscenes import NuScenes
 from pyquaternion import Quaternion
+from pathlib import Path
+from typing import List, Dict, Union
+
+
+map_name_from_general_to_detection = {
+    'human.pedestrian.adult': 'pedestrian',
+    'human.pedestrian.child': 'pedestrian',
+    'human.pedestrian.wheelchair': 'ignore',
+    'human.pedestrian.stroller': 'ignore',
+    'human.pedestrian.personal_mobility': 'ignore',
+    'human.pedestrian.police_officer': 'pedestrian',
+    'human.pedestrian.construction_worker': 'pedestrian',
+    'animal': 'ignore',
+    'vehicle.car': 'car',
+    'vehicle.motorcycle': 'motorcycle',
+    'vehicle.bicycle': 'bicycle',
+    'vehicle.bus.bendy': 'bus',
+    'vehicle.bus.rigid': 'bus',
+    'vehicle.truck': 'truck',
+    'vehicle.construction': 'construction_vehicle',
+    'vehicle.emergency.ambulance': 'ignore',
+    'vehicle.emergency.police': 'ignore',
+    'vehicle.trailer': 'trailer',
+    'movable_object.barrier': 'barrier',
+    'movable_object.trafficcone': 'traffic_cone',
+    'movable_object.pushable_pullable': 'ignore',
+    'movable_object.debris': 'ignore',
+    'static_object.bicycle_rack': 'ignore',
+}
 
 
 def tf(translation, rotation):
@@ -116,6 +145,69 @@ def get_one_pointcloud(nusc: NuScenes, sweep_token: str) -> np.ndarray:
     Return:
         pointcloud: (N, 4) - x, y, z, reflectant
     """
-    pcfile = nusc.get_sample_data_path(sweep_token)
+    pcfile = nusc.get_sample_data_path(sweep_token)  # TODO: bug here
     pc = np.fromfile(pcfile, dtype=np.float32, count=-1).reshape([-1, 5])[:, :4]  # (x, y, z, intensity)
     return pc
+
+
+def get_available_scenes(nusc: NuScenes) -> List[Dict]:
+    available_scenes = []
+    print('total scene num:', len(nusc.scene))
+    for scene in nusc.scene:
+        scene_token = scene['token']
+        scene_rec = nusc.get('scene', scene_token)
+        sample_rec = nusc.get('sample', scene_rec['first_sample_token'])
+        sd_rec = nusc.get('sample_data', sample_rec['data']['LIDAR_TOP'])
+        has_more_frames = True
+        scene_not_exist = False
+        while has_more_frames:
+            lidar_path, boxes, _ = nusc.get_sample_data(sd_rec['token'])
+            if not Path(lidar_path).exists():
+                scene_not_exist = True
+                break
+            else:
+                break
+            # if not sd_rec['next'] == '':
+            #     sd_rec = nusc.get('sample_data', sd_rec['next'])
+            # else:
+            #     has_more_frames = False
+        if scene_not_exist:
+            continue
+        available_scenes.append(scene)
+    print('exist scene num:', len(available_scenes))
+    return available_scenes
+
+
+def quaternion_to_yaw(q: Quaternion) -> float:
+    return np.arctan2(q.rotation_matrix[1, 0], q.rotation_matrix[0, 0])
+
+
+def make_rotation_around_z(yaw: float) -> np.ndarray:
+    cos, sin = np.cos(yaw), np.sin(yaw)
+    out = np.array([
+        [cos, -sin, 0.],
+        [sin, cos, 0.],
+        [0., 0., 1.]
+    ])
+    return out
+
+
+def make_se3(translation: Union[List[float], np.ndarray], yaw: float = None, rotation_matrix: np.ndarray = None):
+    if yaw is None:
+        assert rotation_matrix is not None
+    else:
+        assert rotation_matrix is None
+    
+    if rotation_matrix is None:
+        rotation_matrix = make_rotation_around_z(yaw)
+
+    out = np.zeros((4, 4))
+    out[-1, -1] = 1.0
+
+    out[:3, :3] = rotation_matrix
+
+    if not isinstance(translation, np.ndarray):
+        translation = np.array(translation)
+    out[:3, -1] = translation.reshape(3)
+
+    return out
