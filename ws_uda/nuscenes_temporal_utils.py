@@ -3,6 +3,7 @@ from nuscenes import NuScenes
 from pyquaternion import Quaternion
 from pathlib import Path
 from typing import List, Dict, Union
+import pickle
 
 
 map_name_from_general_to_detection = {
@@ -211,3 +212,44 @@ def make_se3(translation: Union[List[float], np.ndarray], yaw: float = None, rot
     out[:3, -1] = translation.reshape(3)
 
     return out
+
+
+def load_1traj(path_traj: Path, list_target_se3_current_lidar: List[np.ndarray], num_sweeps: int = 10):
+    
+    assert len(list_target_se3_current_lidar) == num_sweeps, f"{len(list_target_se3_current_lidar)} != {num_sweeps}"
+
+    with open(path_traj, 'rb') as f:
+        traj_info = pickle.load(f)
+    traj_len = len(traj_info)
+    
+    start_idx = np.random.randint(low=0, high=max(traj_len - num_sweeps, 0))
+    end_idx = min(start_idx + num_sweeps, traj_len)
+    
+    points, boxes = list(), list()
+    for idx in range(start_idx, end_idx):
+        info = traj_info[idx]
+        
+        box_in_glob = info['box_in_glob']  # in glob
+        
+        # ----
+        # points | in box -> in glob
+        pts = info['points']  # in box
+        glob_se3_box = make_se3(box_in_glob[:3], yaw=box_in_glob[6])
+        apply_se3_(glob_se3_box, points_=pts)
+
+        points.append(pts)
+        boxes.append(box_in_glob.reshape(1, -1))
+
+    points = np.concatenate(points, axis=0)  # in glob
+    boxes = np.concatenate(boxes, axis=0)  # in glob
+
+    glob_se3_last_box = make_se3(boxes[-1, :3], yaw=boxes[-1, 6])
+    # map points and boxes to last_box
+    apply_se3_(np.linalg.inv(glob_se3_last_box), points_=points, boxes_=boxes)
+    
+    # TODO: map points and boxes from last_box to lidar
+    last_box_in_lidar = traj_info[-1]['box_in_lidar']
+    lidar_se3_last_box = make_se3(last_box_in_lidar[:3], yaw=last_box_in_lidar[6])
+    apply_se3_(lidar_se3_last_box, points_=points, boxes_=boxes)
+
+    return points, boxes
