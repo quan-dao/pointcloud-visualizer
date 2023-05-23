@@ -40,7 +40,7 @@ def main(num_sweeps=10):
         apply_se3_(current_se3_past, points_=pcd)
         points.append(pcd)
         
-    points = np.concatenate(points, axis=0)
+    points_original = np.concatenate(points, axis=0)
 
 
     # sample points from database
@@ -61,32 +61,55 @@ def main(num_sweeps=10):
     for _i in invalid_traj_ids:
         del car_trajs_path[_i]
 
-    copied_pts, copied_boxes = list(), list()
+    copied_pts, copied_boxes, mask_keep = list(), list(), list()
     for j in range(10):
-        _pts, _boxes = load_1traj(car_trajs_path[j], num_sweeps=5)
+        _pts, _boxes, _mask = load_1traj(car_trajs_path[j], num_sweeps=5)
+
+        # TODO: check if the last box overlap with any previous boxes
+
+        # TODO: remove all points of the original scene that are inside the box
         
         copied_pts.append(_pts)
         copied_boxes.append(_boxes)
+        mask_keep.append(_mask)
 
     copied_pts = np.concatenate(copied_pts)
     copied_boxes = np.concatenate(copied_boxes)
+    mask_keep = np.concatenate(mask_keep)
 
     print('copied_pts: ', copied_pts.shape)
     print('copied_boxes: ', copied_boxes.shape)
 
     # ======================================
     print('showing before')
-    painter = PointsPainter(xyz=points[:, :3])
+    painter = PointsPainter(xyz=points_original[:, :3])
     painter.show()
 
     print('showing after')
-    num_original = points.shape[0]
-    points = np.concatenate([points[:, :4], copied_pts])
+    num_original = points_original.shape[0]
+    points = np.concatenate([points_original[:, :4], copied_pts])
     points_color = np.zeros((points.shape[0], 3))
     points_color[num_original:, 0] = 1.0  # red for copied points
     painter = PointsPainter(xyz=points[:, :3], boxes=copied_boxes)
     painter.show(xyz_color=points_color)
 
+    print('showing pts to be dropped')
+    copied_pts_color = np.zeros((copied_pts.shape[0], 3))
+    copied_pts_color[mask_keep, 0] = 1  # red - keep
+    copied_pts_color[np.logical_not(mask_keep), 1] = 1  # green - drop 
+    points_color = np.zeros((points.shape[0], 3))
+    points_color[num_original:] = copied_pts_color  # red for copied points
+    painter = PointsPainter(xyz=points[:, :3], boxes=copied_boxes)
+    painter.show(xyz_color=points_color)
+
+    print('showing dropped')
+    copied_pts = copied_pts[mask_keep]
+    print('after drop | copied_pts: ', copied_pts.shape)
+    points = np.concatenate([points_original[:, :4], copied_pts])
+    points_color = np.zeros((points.shape[0], 3))
+    points_color[num_original:, 0] = 1.0  # red for copied points
+    painter = PointsPainter(xyz=points[:, :3], boxes=copied_boxes)
+    painter.show(xyz_color=points_color)
 
 
 

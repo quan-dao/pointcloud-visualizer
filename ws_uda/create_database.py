@@ -5,8 +5,10 @@ from typing import List, Dict
 import pickle
 from pprint import pprint
 from nuscenes import NuScenes
+
 from nuscenes_temporal_utils import get_available_scenes, quaternion_to_yaw, get_one_pointcloud, get_nuscenes_sensor_pose_in_global, \
     apply_se3_, make_se3, map_name_from_general_to_detection
+from downsample_utils import beam_label_gpu, compute_angles
 
 
 DATABASE_ROOT = Path('./gt_boxes_database_lyft')
@@ -73,11 +75,18 @@ def get_points_on_trajectory(nusc: NuScenes, instance_token: str) -> List[Dict]:
         box_in_lidar = np.copy(box_in_glob).reshape(1, -1)
         apply_se3_(lidar_se3_glob, boxes_=box_in_lidar)
         
-        # get points in box
+        # ---------------------------------
+        # points
         pcd = get_one_pointcloud(nusc, sample['data']['LIDAR_TOP'])  # (N, 4) in LiDAR
 
-        # TODO: get points' beam_idx here
+        # get points' beam_idx here
+        pts_theta, pts_phi = compute_angles(pcd)
+        pts_label, centroids = beam_label_gpu(pts_theta, beam=40, use_cuda=False)  # Lyft: 40 | (N_pts, ), (N_beams,)
+        beam_ids = np.argsort(centroids)  # (N_beam,)
+        beams2pts = pts_label[:, np.newaxis].astype(int) == beam_ids[np.newaxis, :]  # (N_pts, N_beam)
+        pts_beam_idx = np.sum(beams2pts.astype(int) * np.arange(beam_ids.shape[0]), axis=1)  # (N_pts,)
         
+        # get points in box
         lidar_se3_box = lidar_se3_glob @ make_se3(box_in_glob[:3], yaw=box_in_glob[6])
         apply_se3_(np.linalg.inv(lidar_se3_box), points_=pcd)
         mask_in_box = np.all(np.abs(pcd[:, :3] / box_in_glob[3: 6]) < (0.5 + 2.5e-2), axis=1)  # (N,)
@@ -86,6 +95,7 @@ def get_points_on_trajectory(nusc: NuScenes, instance_token: str) -> List[Dict]:
         out.append({
             'sample_tk': sample_anno['sample_token'],
             'points': pcd[mask_in_box],  # (N, 4) - x, y, z, intensity | in box
+            'points_beam_idx': pts_beam_idx[mask_in_box],  # (N,)
             'box_in_glob': box_in_glob,  # (7,) - [x, y, z, dx, dy, dz, yaw]
             'box_in_lidar': box_in_lidar.reshape(-1),  # (7,) - [x, y, z, dx, dy, dz, yaw]
         })

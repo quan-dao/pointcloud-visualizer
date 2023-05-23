@@ -214,7 +214,7 @@ def make_se3(translation: Union[List[float], np.ndarray], yaw: float = None, rot
     return out
 
 
-def load_1traj(path_traj: Path, num_sweeps: int = 10):
+def load_1traj(path_traj: Path, num_sweeps: int = 10, beam_ratio: int = 2):
     with open(path_traj, 'rb') as f:
         traj_info = pickle.load(f)
     traj_len = len(traj_info)
@@ -222,7 +222,7 @@ def load_1traj(path_traj: Path, num_sweeps: int = 10):
     start_idx = np.random.randint(low=0, high=max(traj_len - num_sweeps, 0))
     end_idx = min(start_idx + num_sweeps, traj_len)
     
-    points, boxes = list(), list()
+    points, boxes, mask_keep_points = list(), list(), list()
     for idx in range(start_idx, end_idx):
         info = traj_info[idx]
         
@@ -234,11 +234,21 @@ def load_1traj(path_traj: Path, num_sweeps: int = 10):
         glob_se3_box = make_se3(box_in_glob[:3], yaw=box_in_glob[6])
         apply_se3_(glob_se3_box, points_=pts)
 
+        # ---
+        # downsample based on points' beam idx
+        if 'points_beam_idx' in info:
+            points_beam_idx = info['points_beam_idx']
+            mask_keep = (points_beam_idx % beam_ratio) == 0  # (N,)
+        else:
+            mask_keep = np.ones(pts.shape[0], dtype=bool)
+
         points.append(pts)
         boxes.append(box_in_glob.reshape(1, -1))
+        mask_keep_points.append(mask_keep)
 
     points = np.concatenate(points, axis=0)  # in glob
     boxes = np.concatenate(boxes, axis=0)  # in glob
+    mask_keep_points = np.concatenate(mask_keep_points)
 
     glob_se3_last_box = make_se3(boxes[-1, :3], yaw=boxes[-1, 6])
     # map points and boxes to last_box
@@ -249,4 +259,4 @@ def load_1traj(path_traj: Path, num_sweeps: int = 10):
     lidar_se3_last_box = make_se3(last_box_in_lidar[:3], yaw=last_box_in_lidar[6])
     apply_se3_(lidar_se3_last_box, points_=points, boxes_=boxes)
 
-    return points, boxes
+    return points, boxes, mask_keep_points
