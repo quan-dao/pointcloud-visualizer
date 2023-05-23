@@ -214,10 +214,7 @@ def make_se3(translation: Union[List[float], np.ndarray], yaw: float = None, rot
     return out
 
 
-def load_1traj(path_traj: Path, list_target_se3_current_lidar: List[np.ndarray], num_sweeps: int = 10):
-    
-    assert len(list_target_se3_current_lidar) == num_sweeps, f"{len(list_target_se3_current_lidar)} != {num_sweeps}"
-
+def load_1traj(path_traj: Path, num_sweeps: int = 10):
     with open(path_traj, 'rb') as f:
         traj_info = pickle.load(f)
     traj_len = len(traj_info)
@@ -247,7 +244,7 @@ def load_1traj(path_traj: Path, list_target_se3_current_lidar: List[np.ndarray],
     # map points and boxes to last_box
     apply_se3_(np.linalg.inv(glob_se3_last_box), points_=points, boxes_=boxes)
     
-    # TODO: map points and boxes from last_box to lidar
+    # map points and boxes from last_box to lidar
     last_box_in_lidar = traj_info[-1]['box_in_lidar']
     lidar_se3_last_box = make_se3(last_box_in_lidar[:3], yaw=last_box_in_lidar[6])
     apply_se3_(lidar_se3_last_box, points_=points, boxes_=boxes)

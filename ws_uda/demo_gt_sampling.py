@@ -28,7 +28,6 @@ def main(num_sweeps=10):
     # get pointcloud
     sweeps_info = get_sweeps_token(nusc, current_lidar_tk, n_sweeps=num_sweeps, return_time_lag=True, return_sweep_idx=True)
     points = list()
-    list_current_se3_past = list()
     for (lidar_tk, timelag, sweep_idx) in sweeps_info:
         pcd = get_one_pointcloud(nusc, lidar_tk)
         pcd = np.pad(pcd, pad_width=[(0, 0), (0, 2)], constant_values=-1)
@@ -40,7 +39,6 @@ def main(num_sweeps=10):
         current_se3_past = current_se3_glob @ glob_se3_past
         apply_se3_(current_se3_past, points_=pcd)
         points.append(pcd)
-        list_current_se3_past.append(current_se3_past)
         
     points = np.concatenate(points, axis=0)
 
@@ -65,7 +63,7 @@ def main(num_sweeps=10):
 
     copied_pts, copied_boxes = list(), list()
     for j in range(10):
-        _pts, _boxes = load_1traj(car_trajs_path[j], list_target_se3_current_lidar=list_current_se3_past, num_sweeps=num_sweeps)
+        _pts, _boxes = load_1traj(car_trajs_path[j], num_sweeps=5)
         
         copied_pts.append(_pts)
         copied_boxes.append(_boxes)
